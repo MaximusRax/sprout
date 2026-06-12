@@ -121,9 +121,15 @@ export default function CameraTrace() {
   const [scoreResult, setScoreResult] = useState<number | null>(null);
   const [isDrawingLocked, setIsDrawingLocked] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [isCameraMode, setIsCameraMode] = useState(false);
 
   const isFreeDraw = mode === "free-draw";
   const isCustom = mode === "custom";
+
+  const canvasBackground =
+    isCustom && parsedCustomData?.backgroundColor
+      ? parsedCustomData.backgroundColor
+      : "#FFFBEB";
 
   let parsedCustomData: any = null;
   if (isCustom && customData) {
@@ -214,12 +220,12 @@ export default function CameraTrace() {
     });
 
   // Show a blank loading state while checking camera permissions
-  if (!permission) {
+  if (isCameraMode && !permission) {
     return <View style={styles.container} />;
   }
 
   // Child-friendly fallback UI if camera access is missing
-  if (!permission.granted) {
+  if (isCameraMode && !permission.granted) {
     return (
       <View style={styles.permissionContainer}>
         <Text style={styles.title}>Oops!</Text>
@@ -236,9 +242,9 @@ export default function CameraTrace() {
         <TouchableOpacity
           style={styles.backButton}
           activeOpacity={0.8}
-          onPress={() => router.back()}
+          onPress={() => setIsCameraMode(false)}
         >
-          <Text style={styles.buttonText}>⬅️ Go Back</Text>
+          <Text style={styles.buttonText}>⬅️ Use Canvas Instead</Text>
         </TouchableOpacity>
       </View>
     );
@@ -271,7 +277,7 @@ export default function CameraTrace() {
             }}
             autoPlay
             loop
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
             resizeMode="cover"
             pointerEvents="none"
           />
@@ -361,89 +367,91 @@ export default function CameraTrace() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
-        <CameraView style={StyleSheet.absoluteFillObject} facing="back" />
+        {/* Background Layer */}
+        <View style={StyleSheet.absoluteFill}>
+          {isCameraMode ? (
+            <CameraView style={StyleSheet.absoluteFill} facing="back" />
+          ) : (
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: canvasBackground },
+              ]}
+            />
+          )}
+        </View>
 
-        {/* Wrap drawing area in a single View controlled by PanGestureHandler */}
-        <GestureDetector gesture={pan}>
-          <View style={StyleSheet.absoluteFillObject} collapsable={false}>
-            {/* Center overlay for the selected shape (Bottom Layer) */}
-            {!isCustom && !isFreeDraw && (
-              <View
+        {/* Tracing Area Wrapper - absolutely centered */}
+        <View style={styles.tracingWrapper} pointerEvents="box-none">
+          <GestureDetector gesture={pan}>
+            <View
+              style={[
+                styles.tracingBox,
+                isFreeDraw && { width: "100%", height: "100%", borderWidth: 0 },
+              ]}
+              collapsable={false}
+            >
+              {/* Target Shape (Bottom Layer) */}
+              {!isFreeDraw && (
+                <View
+                  style={{
+                    ...StyleSheet.absoluteFill,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    zIndex: 1,
+                    opacity: isCameraMode ? 0.6 : 1.0,
+                  }}
+                  pointerEvents="none"
+                >
+                  <Svg
+                    width="100%"
+                    height="100%"
+                    viewBox={
+                      isCustom ? `0 0 ${width} ${height}` : "0 0 100 100"
+                    }
+                    style={{ backgroundColor: "transparent" }}
+                  >
+                    {renderOverlayShape()}
+                  </Svg>
+                </View>
+              )}
+
+              {/* Active Drawing SVG (Top Layer) */}
+              <Svg
+                width="100%"
+                height="100%"
+                viewBox={isFreeDraw ? `0 0 ${width} ${height}` : "0 0 300 300"}
                 style={{
                   position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  zIndex: 1,
-                  opacity: 0.6,
+                  zIndex: 10,
+                  backgroundColor: "transparent",
                 }}
-                pointerEvents="none"
               >
-                <Svg
-                  width="300"
-                  height="300"
-                  viewBox="0 0 100 100"
-                  style={{ backgroundColor: "transparent" }}
-                >
-                  {renderOverlayShape()}
-                </Svg>
-              </View>
-            )}
-
-            {/* Full screen overlay for custom shape (Bottom Layer) */}
-            {isCustom && parsedCustomData && (
-              <View
-                style={[
-                  StyleSheet.absoluteFillObject,
-                  { position: "absolute", zIndex: 1, opacity: 0.6 },
-                ]}
-                pointerEvents="none"
-              >
-                <Svg
-                  style={[
-                    StyleSheet.absoluteFillObject,
-                    { backgroundColor: "transparent" },
-                  ]}
-                >
-                  {renderOverlayShape()}
-                </Svg>
-              </View>
-            )}
-
-            {/* Active Drawing SVG (Top Layer) */}
-            <Svg
-              style={[
-                StyleSheet.absoluteFillObject,
-                { backgroundColor: "transparent", zIndex: 10 },
-              ]}
-            >
-              {strokes.map((s, i) => (
-                <Path
-                  key={i}
-                  d={s.path}
-                  stroke={s.color}
-                  strokeWidth={14}
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ))}
-              {currentStroke ? (
-                <Path
-                  d={currentStroke.path}
-                  stroke={currentStroke.color}
-                  strokeWidth={14}
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ) : null}
-            </Svg>
-          </View>
-        </GestureDetector>
+                {strokes.map((s, i) => (
+                  <Path
+                    key={i}
+                    d={s.path}
+                    stroke={s.color}
+                    strokeWidth={14}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+                {currentStroke ? (
+                  <Path
+                    d={currentStroke.path}
+                    stroke={currentStroke.color}
+                    strokeWidth={14}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ) : null}
+              </Svg>
+            </View>
+          </GestureDetector>
+        </View>
 
         {/* Floating Done Button */}
         {!isDrawingLocked && (
@@ -473,6 +481,16 @@ export default function CameraTrace() {
             <Text style={styles.buttonTextSmall}>⬅️</Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.floatingToggleButton}
+            activeOpacity={0.8}
+            onPress={() => setIsCameraMode(!isCameraMode)}
+          >
+            <Text style={styles.buttonTextSmall}>
+              {isCameraMode ? "📷" : "🎨"}
+            </Text>
+          </TouchableOpacity>
+
           <View pointerEvents="none" style={styles.header}>
             <Text style={styles.titleOverlay}>
               {isFreeDraw
@@ -491,7 +509,7 @@ export default function CameraTrace() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: "transparent",
   },
   permissionContainer: {
     flex: 1,
@@ -514,13 +532,23 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     textAlign: "center",
   },
-  overlayCenter: {
-    ...StyleSheet.absoluteFillObject,
+  tracingWrapper: {
+    ...StyleSheet.absoluteFill,
     justifyContent: "center",
     alignItems: "center",
+    zIndex: 5,
+  },
+  tracingBox: {
+    width: 300,
+    height: 300,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderWidth: 2,
+    borderRadius: 20,
+    backgroundColor: "transparent",
+    overflow: "hidden",
   },
   uiOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     padding: 20,
     justifyContent: "space-between",
     alignItems: "center",
@@ -595,13 +623,28 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     zIndex: 20,
   },
+  floatingToggleButton: {
+    position: "absolute",
+    top: 60,
+    right: 20,
+    backgroundColor: "#9D4EDD",
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    zIndex: 20,
+  },
   buttonTextSmall: {
     fontSize: 22,
     fontWeight: "900",
     color: "#073B4C",
   },
   calculatingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(255, 255, 255, 0.8)",
     justifyContent: "center",
     alignItems: "center",

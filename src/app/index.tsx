@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   Dimensions,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -199,6 +200,10 @@ export default function Home() {
       style={styles.container}
       contentContainerStyle={styles.scrollContent}
     >
+      <Image
+        source={require("../../assets/images/icon.png")}
+        style={styles.logo}
+      />
       <Text style={styles.title}>Welcome!</Text>
       <Text style={styles.subtitle}>Pick a shape to trace</Text>
 
@@ -276,6 +281,12 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#EF476F",
     textAlign: "center",
+    marginTop: 10,
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    borderRadius: 35,
     marginTop: 20,
   },
   subtitle: {

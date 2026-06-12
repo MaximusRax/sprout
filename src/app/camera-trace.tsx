@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import LottieView from "lottie-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dimensions,
   StyleSheet,
@@ -90,47 +90,20 @@ const calculateScore = (
 
   if (normUser.length === 0 || normTarget.length === 0) return 0;
 
-  // Metric A (Coverage): How much of the target shape was traced? (Target -> User)
-  let totalCoverageDist = 0;
-  normTarget.forEach((t) => {
-    let minDist = Infinity;
-    normUser.forEach((u) => {
-      const dist = Math.sqrt(Math.pow(t.x - u.x, 2) + Math.pow(t.y - u.y, 2));
-      if (dist < minDist) minDist = dist;
-    });
-    totalCoverageDist += minDist;
-  });
-
-  const avgCoverageDist = totalCoverageDist / normTarget.length;
-  const maxCoverageDist = 0.5; // Max acceptable average distance for base score
-  const baseScore = Math.max(
-    0,
-    100 - (avgCoverageDist / maxCoverageDist) * 100,
-  );
-
-  // Metric B (Accuracy/Out-of-Bounds): Identify extra scribbles (User -> Target)
-  let totalPenalty = 0;
-  const safeRadius = 0.15; // Forgiveness zone (approx 15% of shape bounding box in normalized space)
-
+  let totalMinDist = 0;
   normUser.forEach((u) => {
     let minDist = Infinity;
     normTarget.forEach((t) => {
       const dist = Math.sqrt(Math.pow(u.x - t.x, 2) + Math.pow(u.y - t.y, 2));
       if (dist < minDist) minDist = dist;
     });
-
-    if (minDist > safeRadius) {
-      // Accumulate a gentle penalty for points outside the safe radius
-      totalPenalty += (minDist - safeRadius) * 100;
-    }
+    totalMinDist += minDist;
   });
 
-  // Cap the maximum scribble penalty at 20 points
-  const cappedPenalty = Math.min(totalPenalty, 20);
-
-  // Final Score mapping
-  const finalScore = Math.max(0, Math.round(baseScore - cappedPenalty));
-  return finalScore;
+  const avgDist = totalMinDist / normUser.length;
+  const maxDist = 0.5; // Max acceptable average distance
+  const score = Math.max(0, 100 - (avgDist / maxDist) * 100);
+  return score;
 };
 
 export default function CameraTrace() {
@@ -158,36 +131,6 @@ export default function CameraTrace() {
       parsedCustomData = JSON.parse(customData);
     } catch (e) {}
   }
-
-  // Dynamically calculate the bounding box so custom shapes are perfectly centered and scaled
-  const customViewBox = useMemo(() => {
-    if (!isCustom || !parsedCustomData) return "0 0 100 100";
-    const paths = parsedCustomData.strokes.map((s: Stroke) => s.path);
-    const pts = samplePointsFromPaths(paths, 100);
-
-    if (pts.length === 0) return "0 0 100 100";
-
-    let minX = Infinity,
-      maxX = -Infinity,
-      minY = Infinity,
-      maxY = -Infinity;
-    pts.forEach((p) => {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    });
-
-    let w = maxX - minX;
-    let h = maxY - minY;
-    if (w === 0) w = 10; // Safety fallback
-    if (h === 0) h = 10;
-
-    const padX = w * 0.15; // 15% padding
-    const padY = h * 0.15;
-
-    return `${minX - padX} ${minY - padY} ${w + padX * 2} ${h + padY * 2}`;
-  }, [isCustom, parsedCustomData]);
 
   // Reanimated shared value for the pulsing celebration effect
   const pulse = useSharedValue(1);
@@ -423,8 +366,8 @@ export default function CameraTrace() {
         {/* Wrap drawing area in a single View controlled by PanGestureHandler */}
         <GestureDetector gesture={pan}>
           <View style={StyleSheet.absoluteFillObject} collapsable={false}>
-            {/* Center overlay for all shapes (Bottom Layer) */}
-            {!isFreeDraw && (
+            {/* Center overlay for the selected shape (Bottom Layer) */}
+            {!isCustom && !isFreeDraw && (
               <View
                 style={{
                   position: "absolute",
@@ -442,9 +385,28 @@ export default function CameraTrace() {
                 <Svg
                   width="300"
                   height="300"
-                  viewBox={isCustom ? customViewBox : "0 0 100 100"}
+                  viewBox="0 0 100 100"
                   style={{ backgroundColor: "transparent" }}
-                  preserveAspectRatio="xMidYMid meet"
+                >
+                  {renderOverlayShape()}
+                </Svg>
+              </View>
+            )}
+
+            {/* Full screen overlay for custom shape (Bottom Layer) */}
+            {isCustom && parsedCustomData && (
+              <View
+                style={[
+                  StyleSheet.absoluteFillObject,
+                  { position: "absolute", zIndex: 1, opacity: 0.6 },
+                ]}
+                pointerEvents="none"
+              >
+                <Svg
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    { backgroundColor: "transparent" },
+                  ]}
                 >
                   {renderOverlayShape()}
                 </Svg>

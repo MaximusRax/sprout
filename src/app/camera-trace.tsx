@@ -21,7 +21,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Path } from "react-native-svg";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { svgPathProperties } from "svg-path-properties";
 import { DefaultShapes } from "../constants/DefaultShapes";
 
@@ -63,47 +63,58 @@ const normalizePoints = (points: { x: number; y: number }[]) => {
     minY = Infinity,
     maxY = -Infinity;
   points.forEach((p) => {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
   });
 
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
+  // Shift the points so the top-left of the bounding box is at (0,0)
+  const shiftedPoints = points.map((p) => ({
+    x: p.x - minX,
+    y: p.y - minY,
+  }));
+
   const width = maxX - minX;
   const height = maxY - minY;
   const maxDim = Math.max(width, height) || 1;
 
-  return points.map((p) => ({
-    x: (p.x - centerX) / maxDim,
-    y: (p.y - centerY) / maxDim,
+  // Scale the points to fit within a 1x1 box
+  return shiftedPoints.map((p) => ({
+    x: p.x / maxDim,
+    y: p.y / maxDim,
   }));
 };
 
 const calculateScore = (
   userPoints: { x: number; y: number }[],
   targetPoints: { x: number; y: number }[],
+  isCameraMode: boolean,
 ) => {
   const normUser = normalizePoints(userPoints);
   const normTarget = normalizePoints(targetPoints);
 
   if (normUser.length === 0 || normTarget.length === 0) return 0;
 
-  let totalMinDist = 0;
-  normUser.forEach((u) => {
-    let minDist = Infinity;
-    normTarget.forEach((t) => {
-      const dist = Math.sqrt(Math.pow(u.x - t.x, 2) + Math.pow(u.y - t.y, 2));
-      if (dist < minDist) minDist = dist;
-    });
-    totalMinDist += minDist;
-  });
+  let totalDistance = 0;
 
-  const avgDist = totalMinDist / normUser.length;
-  const maxDist = 0.5; // Max acceptable average distance
-  const score = Math.max(0, 100 - (avgDist / maxDist) * 100);
-  return score;
+  // Find the closest target point for each point the user drew
+  for (const up of normUser) {
+    let minD = Infinity;
+    for (const tp of normTarget) {
+      const dist = Math.sqrt(
+        Math.pow(up.x - tp.x, 2) + Math.pow(up.y - tp.y, 2),
+      );
+      if (dist < minD) minD = dist;
+    }
+    totalDistance += minD;
+  }
+
+  const avgDistance = totalDistance / normUser.length;
+  const tolerance = isCameraMode ? 0.3 : 0.15; // More forgiving in camera mode
+
+  const score = Math.max(0, 100 - (avgDistance / tolerance) * 100);
+  return Math.round(score);
 };
 
 export default function CameraTrace() {
@@ -122,16 +133,23 @@ export default function CameraTrace() {
   const [isDrawingLocked, setIsDrawingLocked] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isCameraMode, setIsCameraMode] = useState(false);
+  const [isDebugMode, setIsDebugMode] = useState(false);
+  const [debugUserPoints, setDebugUserPoints] = useState<
+    { x: number; y: number }[]
+  >([]);
+  const [debugTargetPoints, setDebugTargetPoints] = useState<
+    { x: number; y: number }[]
+  >([]);
 
   const isFreeDraw = mode === "free-draw";
   const isCustom = mode === "custom";
 
+  let parsedCustomData: any = null;
   const canvasBackground =
     isCustom && parsedCustomData?.backgroundColor
       ? parsedCustomData.backgroundColor
       : "#FFFBEB";
 
-  let parsedCustomData: any = null;
   if (isCustom && customData) {
     try {
       parsedCustomData = JSON.parse(customData);
@@ -185,10 +203,15 @@ export default function CameraTrace() {
       const userPoints = samplePointsFromPaths(allPaths, 100);
       const targetPoints = samplePointsFromPaths(targetPaths, 100);
 
+      if (isDebugMode) {
+        setDebugUserPoints(userPoints);
+        setDebugTargetPoints(targetPoints);
+      }
+
       if (userPoints.length < 10) {
         setScoreResult(20);
       } else {
-        const score = calculateScore(userPoints, targetPoints);
+        const score = calculateScore(userPoints, targetPoints, isCameraMode);
         setScoreResult(score);
       }
       setIsCalculating(false);
@@ -225,7 +248,7 @@ export default function CameraTrace() {
   }
 
   // Child-friendly fallback UI if camera access is missing
-  if (isCameraMode && !permission.granted) {
+  if (isCameraMode && !permission?.granted) {
     return (
       <View style={styles.permissionContainer}>
         <Text style={styles.title}>Oops!</Text>
@@ -368,7 +391,7 @@ export default function CameraTrace() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
         {/* Background Layer */}
-        <View style={StyleSheet.absoluteFill}>
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
           {isCameraMode ? (
             <CameraView style={StyleSheet.absoluteFill} facing="back" />
           ) : (
@@ -385,11 +408,9 @@ export default function CameraTrace() {
         <View style={styles.tracingWrapper} pointerEvents="box-none">
           <GestureDetector gesture={pan}>
             <View
-              style={[
-                styles.tracingBox,
-                isFreeDraw && { width: "100%", height: "100%", borderWidth: 0 },
-              ]}
+              style={styles.tracingBox}
               collapsable={false}
+              pointerEvents="auto"
             >
               {/* Target Shape (Bottom Layer) */}
               {!isFreeDraw && (
@@ -404,8 +425,8 @@ export default function CameraTrace() {
                   pointerEvents="none"
                 >
                   <Svg
-                    width="100%"
-                    height="100%"
+                    width={isCustom ? "100%" : 300}
+                    height={isCustom ? "100%" : 300}
                     viewBox={
                       isCustom ? `0 0 ${width} ${height}` : "0 0 100 100"
                     }
@@ -420,7 +441,7 @@ export default function CameraTrace() {
               <Svg
                 width="100%"
                 height="100%"
-                viewBox={isFreeDraw ? `0 0 ${width} ${height}` : "0 0 300 300"}
+                viewBox={`0 0 ${width} ${height}`}
                 style={{
                   position: "absolute",
                   zIndex: 10,
@@ -454,7 +475,7 @@ export default function CameraTrace() {
         </View>
 
         {/* Floating Done Button */}
-        {!isDrawingLocked && (
+        {!isDrawingLocked && !isCameraMode && (
           <TouchableOpacity
             style={styles.floatingDoneButton}
             activeOpacity={0.8}
@@ -462,6 +483,44 @@ export default function CameraTrace() {
           >
             <Text style={styles.buttonTextSmall}>Check My Drawing! ✅</Text>
           </TouchableOpacity>
+        )}
+
+        {isDebugMode && (
+          <View
+            style={[StyleSheet.absoluteFill, { zIndex: 200 }]}
+            pointerEvents="none"
+          >
+            <Svg width="100%" height="100%">
+              <Rect
+                x="10"
+                y="100"
+                width="220"
+                height="220"
+                stroke="black"
+                fill="rgba(255,255,255,0.7)"
+              />
+              {/* Render Normalized Target Points (Red) */}
+              {normalizePoints(debugTargetPoints).map((p, i) => (
+                <Circle
+                  key={`norm-target-${i}`}
+                  cx={10 + 10 + p.x * 200}
+                  cy={100 + 10 + p.y * 200}
+                  r="2"
+                  fill="red"
+                />
+              ))}
+              {/* Render Normalized User Points (Blue) */}
+              {normalizePoints(debugUserPoints).map((p, i) => (
+                <Circle
+                  key={`norm-user-${i}`}
+                  cx={10 + 10 + p.x * 200}
+                  cy={100 + 10 + p.y * 200}
+                  r="2"
+                  fill="blue"
+                />
+              ))}
+            </Svg>
+          </View>
         )}
 
         {isCalculating && (
@@ -488,6 +547,16 @@ export default function CameraTrace() {
           >
             <Text style={styles.buttonTextSmall}>
               {isCameraMode ? "📷" : "🎨"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.floatingDebugButton}
+            activeOpacity={0.8}
+            onPress={() => setIsDebugMode(!isDebugMode)}
+          >
+            <Text style={styles.buttonTextSmall}>
+              {isDebugMode ? "🐞 ON" : "🐞"}
             </Text>
           </TouchableOpacity>
 
@@ -539,11 +608,8 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   tracingBox: {
-    width: 300,
-    height: 300,
-    borderColor: "rgba(255, 255, 255, 0.3)",
-    borderWidth: 2,
-    borderRadius: 20,
+    width: "100%",
+    height: "100%",
     backgroundColor: "transparent",
     overflow: "hidden",
   },
@@ -628,6 +694,21 @@ const styles = StyleSheet.create({
     top: 60,
     right: 20,
     backgroundColor: "#9D4EDD",
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    zIndex: 20,
+  },
+  floatingDebugButton: {
+    position: "absolute",
+    bottom: 120,
+    right: 20,
+    backgroundColor: "rgba(0,0,0,0.5)",
     paddingVertical: 15,
     paddingHorizontal: 20,
     borderRadius: 30,

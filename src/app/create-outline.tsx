@@ -144,8 +144,8 @@ export default function CreateOutline() {
           ]}
         >
           <GestureDetector gesture={pan}>
-            <View style={StyleSheet.absoluteFillObject} collapsable={false}>
-              <Svg style={StyleSheet.absoluteFillObject}>
+            <View style={StyleSheet.absoluteFill} collapsable={false}>
+              <Svg style={StyleSheet.absoluteFill}>
                 {strokes.map((stroke, i) => (
                   <Path
                     key={i}

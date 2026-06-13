@@ -43,6 +43,13 @@ Built with a modern, performant React Native stack to ensure fluid 60fps interac
 
 ---
 
+## Download APK
+
+You can download and install the latest Android release APK directly here:
+[Download Sprout APK](https://github.com/maximusrax/sprout/releases/latest)
+
+---
+
 ## Installation & Running Locally
 
 1. Clone the repository:

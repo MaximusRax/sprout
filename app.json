@@ -32,11 +32,18 @@
           "imageWidth": 200,
           "backgroundColor": "#E0FDFC"
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c831835e-feb2-4986-8e25-6dcd6608c1f4"
+      }
     }
   }
 }
